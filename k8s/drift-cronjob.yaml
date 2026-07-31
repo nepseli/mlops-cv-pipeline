@@ -1,0 +1,43 @@
+# Hourly Evidently drift detection over the serving pod's prediction logs.
+#
+# Pod affinity pins this job to the same node as cv-serving because both mount
+# the same ReadWriteOnce EBS volume. Move prediction logs to S3/EFS and this
+# constraint disappears.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: drift-detector
+  namespace: mlops
+spec:
+  schedule: "0 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels: {app: cv-serving}
+                  topologyKey: kubernetes.io/hostname
+          containers:
+            - name: drift
+              image: ${ECR}/mlops-cv/drift:${IMAGE_TAG}
+              env:
+                - {name: PRED_LOG_DIR, value: /data/predictions}
+                - {name: REFERENCE_PATH, value: /data/reference.jsonl}
+                - {name: PUSHGATEWAY, value: "pushgateway-prometheus-pushgateway.monitoring:9091"}
+                - {name: CURRENT_HOURS, value: "24"}
+              volumeMounts:
+                - {name: predlogs, mountPath: /data}
+              resources:
+                requests: {cpu: 250m, memory: 512Mi}
+                limits: {cpu: "1", memory: 1Gi}
+          volumes:
+            - name: predlogs
+              persistentVolumeClaim: {claimName: prediction-logs}

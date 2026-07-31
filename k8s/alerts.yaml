@@ -1,0 +1,54 @@
+# Alert rules picked up by the Prometheus operator.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: mlops-alerts
+  namespace: mlops
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: model-serving
+      rules:
+        - alert: HighInferenceLatency
+          expr: histogram_quantile(0.95, sum(rate(inference_latency_seconds_bucket[5m])) by (le)) > 1
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: "p95 inference latency above 1s for 10m"
+        - alert: HighErrorRate
+          expr: |
+            sum(rate(inference_requests_total{status="error"}[5m]))
+              / clamp_min(sum(rate(inference_requests_total[5m])), 1e-9) > 0.05
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: "Inference error rate above 5%"
+        - alert: ServingDown
+          expr: up{job=~".*cv-serving.*"} == 0
+          for: 2m
+          labels: {severity: critical}
+          annotations:
+            summary: "cv-serving scrape target down"
+    - name: model-drift
+      rules:
+        - alert: DataDriftDetected
+          expr: dataset_drift_detected{job="drift-detector"} == 1
+          for: 0m
+          labels: {severity: warning}
+          annotations:
+            summary: "Evidently reports dataset drift on live traffic"
+            description: "Inspect feature_drift_score in Grafana; consider `make retrain`."
+        - alert: DriftShareHigh
+          expr: drift_share{job="drift-detector"} > 0.5
+          for: 0m
+          labels: {severity: critical}
+          annotations:
+            summary: "More than half of monitored features are drifting — retrain"
+        - alert: ConfidenceCollapse
+          expr: |
+            histogram_quantile(0.5, sum(rate(detection_confidence_bucket[1h])) by (le)) < 0.45
+          for: 30m
+          labels: {severity: warning}
+          annotations:
+            summary: "Median detection confidence below 0.45 for 30m (possible model decay)"

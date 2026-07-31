@@ -1,0 +1,35 @@
+# Maintain stage: manual (or webhook-triggered) retraining after a drift alert.
+# Wire Alertmanager -> a small webhook -> `gh workflow run retrain.yaml` to close
+# the loop automatically once you trust the gate.
+name: retrain
+on:
+  workflow_dispatch:
+    inputs:
+      epochs:
+        description: "Training epochs"
+        default: "10"
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GHA_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Train + verify + register
+        env:
+          MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
+        run: |
+          pip install -r training/requirements.txt
+          sed -i "s/epochs: .*/epochs: ${{ github.event.inputs.epochs }}/" params.yaml
+          python training/train.py   # exits non-zero if quality gate fails
+      - name: Notify
+        if: success()
+        run: echo "New candidate registered — review in MLflow, then promote + merge to deploy."

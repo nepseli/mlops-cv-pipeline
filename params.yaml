@@ -1,0 +1,7 @@
+train:
+  base_weights: yolov8n.pt   # "buy": pretrained on COCO
+  dataset: coco128.yaml      # tiny 128-image COCO subset, auto-downloads; swap for your own data.yaml
+  epochs: 10
+  imgsz: 640
+  batch: 8
+  min_map50: 0.45            # quality gate — training fails the pipeline below this

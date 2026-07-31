@@ -1,0 +1,13 @@
+# DVC pipeline: `dvc repro` runs training only when params/data/code changed.
+# Data versioning: put your dataset under data/, then `dvc add data/ && git add data.dvc`
+# Remote:  dvc remote add -d s3remote s3://$DVC_BUCKET  &&  dvc push
+stages:
+  train:
+    cmd: python training/train.py
+    deps:
+      - training/train.py
+    params:
+      - train
+    outs:
+      - training/runs/finetune:
+          persist: true

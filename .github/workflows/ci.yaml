@@ -1,0 +1,78 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install ruff
+      - run: ruff check serving training monitoring
+      - name: Syntax check
+        run: python -m py_compile serving/app/main.py training/train.py training/fetch_model.py monitoring/drift/drift_job.py
+      - name: Validate k8s manifests
+        run: |
+          pip install pyyaml
+          python -c "import yaml, glob; [list(yaml.safe_load_all(open(f))) for f in glob.glob('k8s/*.yaml') + glob.glob('monitoring/*.yaml')]"
+
+  build-push:
+    needs: lint-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write        # OIDC — no long-lived AWS keys in GitHub
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GHA_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - name: Fetch production model from MLflow
+        # Requires MLFLOW_TRACKING_URI reachable from CI (e.g. via an ALB or
+        # a self-hosted runner in the VPC). For the demo, commit serving/model.onnx
+        # after `make fetch-model` and this step is skipped.
+        if: ${{ vars.MLFLOW_TRACKING_URI != '' }}
+        run: |
+          pip install mlflow boto3
+          MLFLOW_TRACKING_URI=${{ vars.MLFLOW_TRACKING_URI }} python training/fetch_model.py production
+      - name: Build and push serving image
+        run: |
+          ECR=${{ steps.ecr.outputs.registry }}
+          docker build -t $ECR/mlops-cv/serving:${{ github.sha }} -f serving/Dockerfile .
+          docker push $ECR/mlops-cv/serving:${{ github.sha }}
+      - name: Build and push drift image
+        run: |
+          ECR=${{ steps.ecr.outputs.registry }}
+          docker build -t $ECR/mlops-cv/drift:${{ github.sha }} -f monitoring/drift/Dockerfile .
+          docker push $ECR/mlops-cv/drift:${{ github.sha }}
+
+  deploy:
+    needs: build-push
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GHA_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy to EKS
+        run: |
+          aws eks update-kubeconfig --name mlops-cv --region $AWS_REGION
+          kubectl -n mlops set image deploy/cv-serving \
+            serving=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$AWS_REGION.amazonaws.com/mlops-cv/serving:${{ github.sha }}
+          kubectl -n mlops rollout status deploy/cv-serving --timeout=180s

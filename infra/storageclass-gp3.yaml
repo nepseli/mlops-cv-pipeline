@@ -1,0 +1,17 @@
+# Recent EKS versions ship a gp2 StorageClass that is NOT marked default, so any
+# PVC without an explicit storageClassName stays Pending forever and its pod never
+# schedules. This makes gp3 (modern EBS CSI driver, cheaper per GiB) the default.
+#
+# Apply once, immediately after the cluster is created:  make storageclass
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+parameters:
+  type: gp3

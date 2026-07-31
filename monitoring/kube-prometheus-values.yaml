@@ -1,0 +1,35 @@
+# Values for prometheus-community/kube-prometheus-stack (release name: monitoring).
+#
+# Installed by `make monitoring`, which injects the Grafana admin password from
+# .env via --set so no credential lives in this tracked file.
+grafana:
+  # adminPassword intentionally omitted — supplied at install time from .env
+  service:
+    type: ClusterIP          # reach it with `kubectl port-forward`; avoids an ELB bill
+  sidecar:
+    dashboards:
+      enabled: true          # auto-imports ConfigMaps labeled grafana_dashboard="1"
+
+prometheus:
+  prometheusSpec:
+    retention: 3d
+    # Discover ServiceMonitors / PrometheusRules in all namespaces, not just this one
+    serviceMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 10Gi
+
+alertmanager:
+  enabled: true
+
+# Trimmed: managed control-plane components aren't scrapable on EKS
+kubeEtcd: {enabled: false}
+kubeControllerManager: {enabled: false}
+kubeScheduler: {enabled: false}

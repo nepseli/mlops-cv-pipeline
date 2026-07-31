@@ -1,0 +1,78 @@
+# MLflow tracking server + model registry.
+#
+# Sized for a single engineer: SQLite + artifacts on one EBS volume, one replica.
+# For a team, swap --backend-store-uri to RDS Postgres and --artifacts-destination
+# to s3://${MLFLOW_BUCKET} (requires IRSA so the pod can authenticate to S3 —
+# see docs/ROADMAP notes in the README).
+#
+# Two settings below are load-bearing; see TROUBLESHOOTING.md:
+#   --workers=1   MLflow 3.x starts multiple workers by default and OOM-kills itself
+#   memory: 2Gi   1Gi is not enough for the 3.x server
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-data
+  namespace: mlops
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: mlops
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate            # ReadWriteOnce volume — never two pods on one SQLite file
+  selector:
+    matchLabels: {app: mlflow}
+  template:
+    metadata:
+      labels: {app: mlflow}
+    spec:
+      containers:
+        - name: mlflow
+          # Keep this MAJOR version aligned with training/requirements.txt.
+          # A 3.x client against a 2.x server fails model registration (404).
+          image: ghcr.io/mlflow/mlflow:v3.14.0
+          args:
+            - mlflow
+            - server
+            - --host=0.0.0.0
+            - --port=5000
+            - --workers=1
+            - --backend-store-uri=sqlite:////data/mlflow.db
+            - --artifacts-destination=/data/artifacts
+          ports:
+            - {containerPort: 5000, name: http}
+          readinessProbe:
+            httpGet: {path: /health, port: 5000}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet: {path: /health, port: 5000}
+            initialDelaySeconds: 90
+            periodSeconds: 20
+          volumeMounts:
+            - {name: data, mountPath: /data}
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {cpu: "1", memory: 2Gi}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: mlflow-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: mlops
+spec:
+  selector: {app: mlflow}
+  ports:
+    - {port: 5000, targetPort: 5000}

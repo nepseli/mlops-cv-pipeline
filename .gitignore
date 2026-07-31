@@ -1,0 +1,39 @@
+# --- secrets / account-specific config (never commit) ---
+# NOTE: gitignore has no trailing comments — a "#" on a pattern line becomes
+# part of the pattern and silently matches nothing. Keep comments on own lines.
+.env
+.env.*
+!.env.example
+*.local.yaml
+# rendered manifests: contain your real registry and bucket values
+build/
+
+# --- model + data artifacts ---
+serving/model.onnx
+training/runs/
+mlruns/
+*.pt
+*.onnx
+data/
+.dvc/cache
+
+# --- python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# --- sample / generated images ---
+# Test images are downloaded by the quickstart and drift.jpg is generated from
+# them, so neither belongs in git; committing a third-party photo would also
+# drag its license into an MIT repo. Patterns are anchored to the repo root
+# (leading /), so committed documentation images under docs/ are unaffected.
+/*.jpg
+/*.jpeg
+/*.png
+/*.webp
+
+# --- misc ---
+*.bak
+.DS_Store
+Thumbs.db

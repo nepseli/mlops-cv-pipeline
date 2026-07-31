@@ -1,0 +1,88 @@
+# Model serving: FastAPI + ONNX Runtime.
+#
+# ${ECR} and ${IMAGE_TAG} are substituted from .env by `make render` into build/.
+# This file stays free of account-specific values.
+#
+# Single replica by design: prediction logs land on a ReadWriteOnce EBS volume
+# that the drift CronJob also reads. To scale out, write prediction logs to S3
+# or EFS first, then raise replicas and add an HPA.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prediction-logs
+  namespace: mlops
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cv-serving
+  namespace: mlops
+  labels: {app: cv-serving}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {app: cv-serving}
+  template:
+    metadata:
+      labels: {app: cv-serving}
+    spec:
+      containers:
+        - name: serving
+          image: ${ECR}/mlops-cv/serving:${IMAGE_TAG}
+          ports:
+            - {name: http, containerPort: 8080}
+          env:
+            - {name: PRED_LOG_DIR, value: /data/predictions}
+            - {name: MODEL_VERSION, value: "1"}   # bump on each promotion; forces a rollout
+            - {name: CONF_THRESHOLD, value: "0.35"}
+            - {name: IOU_THRESHOLD, value: "0.45"}
+          volumeMounts:
+            - {name: predlogs, mountPath: /data}
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits: {cpu: "2", memory: 2Gi}
+      volumes:
+        - name: predlogs
+          persistentVolumeClaim: {claimName: prediction-logs}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cv-serving
+  namespace: mlops
+  labels: {app: cv-serving}
+spec:
+  selector: {app: cv-serving}
+  ports:
+    - {name: http, port: 80, targetPort: 8080}
+---
+# Requires the Prometheus operator CRDs — install the monitoring stack BEFORE this.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cv-serving
+  namespace: mlops
+  labels:
+    release: monitoring        # must match the Helm release name
+spec:
+  selector:
+    matchLabels: {app: cv-serving}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

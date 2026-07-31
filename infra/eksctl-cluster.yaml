@@ -1,0 +1,30 @@
+# eksctl cluster config — creates VPC, control plane, and one managed node group.
+# Create:  eksctl create cluster -f infra/eksctl-cluster.yaml   (~20 min, run FIRST, unattended)
+# Delete:  eksctl delete cluster -f infra/eksctl-cluster.yaml   (do this when done — nodes bill hourly)
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: mlops-cv
+  region: us-east-1
+  version: "1.31"
+
+iam:
+  withOIDC: true
+
+managedNodeGroups:
+  - name: cpu-workers
+    instanceType: t3.large        # 2 vCPU / 8 GiB — enough for CPU inference + monitoring stack
+    desiredCapacity: 2
+    minSize: 2
+    maxSize: 4
+    volumeSize: 40
+    iam:
+      withAddonPolicies:
+        imageBuilder: true        # pull from ECR
+        cloudWatch: true
+
+addons:
+  - name: aws-ebs-csi-driver      # PVCs for MLflow + Prometheus
+    wellKnownPolicies:
+      ebsCSIController: true
