@@ -1,6 +1,6 @@
 # Serving image: FastAPI + ONNX Runtime.
 # Build from the repo root:  docker build -f serving/Dockerfile .
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Never run application code as root in a cluster.
 RUN useradd --create-home --uid 10001 appuser
