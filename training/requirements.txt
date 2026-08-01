@@ -5,7 +5,7 @@
 # it must match the server image in k8s/mlflow.yaml, or model registration fails.
 ultralytics>=8.3
 mlflow>=3.0,<4.0          # keep in lockstep with ghcr.io/mlflow/mlflow:v3.x
-dvc[s3]>=3.50
+dvc[s3]>=3.67.1
 onnx>=1.22.0
 onnxruntime>=1.18
 pyyaml>=6.0
