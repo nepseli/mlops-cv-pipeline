@@ -3,7 +3,7 @@
 # Lower bounds, not exact pins: exact pins from one era stop resolving on newer
 # Python versions. The one constraint that matters is the MLflow MAJOR version —
 # it must match the server image in k8s/mlflow.yaml, or model registration fails.
-ultralytics>=8.3
+ultralytics>=8.4.112
 mlflow>=3.0,<4.0          # keep in lockstep with ghcr.io/mlflow/mlflow:v3.x
 dvc[s3]>=3.67.1
 onnx>=1.22.0
