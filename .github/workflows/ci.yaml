@@ -17,7 +17,7 @@ jobs:
     name: Lint and compile
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
@@ -32,7 +32,7 @@ jobs:
     name: Validate Kubernetes manifests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
@@ -69,7 +69,7 @@ jobs:
     name: Secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0        # full history so the scan covers every commit
       - name: gitleaks
@@ -81,7 +81,7 @@ jobs:
     name: Build images (no push)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Placeholder model so the serving image can build
         run: touch serving/model.onnx
       - name: Build serving image
