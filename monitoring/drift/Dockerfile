@@ -1,6 +1,6 @@
 # Drift detection job (Evidently -> Prometheus Pushgateway).
 # Build from the repo root:  docker build -f monitoring/drift/Dockerfile .
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 RUN useradd --create-home --uid 10001 appuser
 
