@@ -1,13 +1,24 @@
-# Keeps GitHub Actions, Python dependencies, and base images current.
-# Security patches arrive as PRs instead of going unnoticed.
+# Keeps GitHub Actions, Python dependencies, and base images current so that
+# security patches surface as PRs instead of going unnoticed.
+#
+# Major versions are deliberately excluded where this project pins on purpose:
+#   - python base image: 3.11 is required; newer interpreters lack wheels for
+#     parts of this stack (see TROUBLESHOOTING.md #6)
+#   - evidently: 0.7 rewrote the Report/preset API that drift_job.py uses
+#   - pandas: major bumps change dtype and I/O behaviour
+# Those upgrades are real work, not a merge button, so they stay manual.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: monthly
+    open-pull-requests-limit: 5
     commit-message:
       prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]
 
   - package-ecosystem: pip
     directories:
@@ -16,8 +27,24 @@ updates:
       - "/monitoring/drift"
     schedule:
       interval: monthly
+    open-pull-requests-limit: 5
     commit-message:
       prefix: "deps"
+    groups:
+      python-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # API rewrite in 0.7 — upgrading requires rewriting drift_job.py
+      - dependency-name: "evidently"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "pandas"
+        update-types: ["version-update:semver-major"]
+      # MLflow major must stay aligned with the server image in k8s/mlflow.yaml
+      - dependency-name: "mlflow"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "onnxruntime"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directories:
@@ -25,5 +52,10 @@ updates:
       - "/monitoring/drift"
     schedule:
       interval: monthly
+    open-pull-requests-limit: 3
     commit-message:
       prefix: "docker"
+    ignore:
+      # Stay on the 3.11 line; 3.12+ moves are a deliberate, tested migration.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
