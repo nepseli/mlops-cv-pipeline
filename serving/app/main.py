@@ -12,7 +12,7 @@ import io
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -20,8 +20,13 @@ import onnxruntime as ort
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from PIL import Image
-from prometheus_client import (CONTENT_TYPE_LATEST, Counter, Gauge, Histogram,
-                               generate_latest)
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 
 MODEL_PATH = os.environ.get("MODEL_PATH", "/models/model.onnx")
 CONF_THRESHOLD = float(os.environ.get("CONF_THRESHOLD", "0.35"))
@@ -122,7 +127,7 @@ def log_prediction(img: Image.Image, dets: list[dict], latency: float) -> None:
     """Append per-request features for the drift job (data drift + prediction drift)."""
     arr = np.asarray(img.convert("L"), dtype=np.float32)
     record = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "brightness": float(arr.mean()),
         "contrast": float(arr.std()),
         "width": img.size[0],
@@ -132,7 +137,7 @@ def log_prediction(img: Image.Image, dets: list[dict], latency: float) -> None:
         "top_class": dets[0]["class_name"] if dets else "none",
         "latency_s": round(latency, 4),
     }
-    day_file = PRED_LOG_DIR / f"{datetime.now(timezone.utc):%Y-%m-%d}.jsonl"
+    day_file = PRED_LOG_DIR / f"{datetime.now(UTC):%Y-%m-%d}.jsonl"
     with open(day_file, "a") as f:
         f.write(json.dumps(record) + "\n")
 

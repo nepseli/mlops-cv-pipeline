@@ -1,0 +1,21 @@
+# Explicit rule selection so CI is deterministic across ruff releases —
+# relying on defaults means a new ruff version can turn a green build red.
+target-version = "py311"
+line-length = 100
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # import sorting
+    "B",   # bugbear
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line length is handled by the formatter, not enforced as an error
+]
+
+[lint.per-file-ignores]
+# FastAPI's dependency-injection idiom is a function call in an argument
+# default; B008 flags it, but it is the framework's documented usage.
+"serving/app/main.py" = ["B008"]

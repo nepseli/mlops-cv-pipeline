@@ -1,5 +1,10 @@
 # mlops-cv-pipeline
 
+[![ci](https://github.com/nepseli/mlops-cv-pipeline/actions/workflows/ci.yaml/badge.svg)](https://github.com/nepseli/mlops-cv-pipeline/actions/workflows/ci.yaml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
+[![Kubernetes](https://img.shields.io/badge/kubernetes-EKS-326CE5.svg)](https://aws.amazon.com/eks/)
+
 **A complete MLOps loop for computer vision — trained, deployed, monitored, and drift-alerted on real AWS infrastructure in half a day.**
 
 Most MLOps tutorials stop at "the model is served." This one runs the whole loop on a live EKS cluster and then *proves the last stage works*: corrupted images are fed to the deployed endpoint, drift is detected statistically, and alerts fire — without anyone watching a dashboard.
@@ -43,7 +48,7 @@ The drift detector only exists because the serving layer logs its own input and 
 
 ## Quickstart
 
-**Prerequisites:** an AWS account, plus `aws` (configured), `eksctl`, `kubectl`, `helm`, `docker`, and Python 3.10–3.12. On Windows, run everything inside WSL2.
+**Prerequisites:** an AWS account, plus `aws` (configured), `eksctl`, `kubectl`, `helm`, `docker`, and Python 3.11+. On Windows, run everything inside WSL2.
 
 > **Cost warning.** This creates real AWS resources: roughly **$0.35–0.50/hour** (EKS control plane + 2× t3.large + EBS). A full session costs a few dollars. **`make destroy` when you are done.**
 
@@ -99,7 +104,15 @@ Watch it land in Grafana (`kubectl -n monitoring port-forward svc/monitoring-gra
 
 Account-specific values live in `.env`, which is gitignored. Tracked manifests keep `${ECR}` style placeholders; `make render` resolves them into `build/` (also gitignored) at apply time. **No tracked file is ever rewritten with your account values**, so there is nothing to accidentally commit. The Grafana admin password is injected into Helm from `.env` rather than stored in the values file.
 
-CI authenticates to AWS through GitHub's OIDC provider — no long-lived access keys are stored anywhere. Set the `AWS_GHA_ROLE_ARN` repository secret to a role whose trust policy accepts tokens from this repo.
+Other measures worth naming explicitly:
+
+- **Keyless CI.** `deploy.yaml` authenticates to AWS through GitHub's OIDC provider — short-lived credentials, no access keys stored anywhere. It stays dormant unless the repository variable `DEPLOY_ENABLED` is `true`, so a fork never fails on missing secrets.
+- **Secret scanning in CI.** Every push runs gitleaks over the full history, so a leaked credential fails the build rather than sitting in a commit.
+- **Non-root containers.** Both images run as UID 10001; pods set `runAsNonRoot`, drop all Linux capabilities, and disable privilege escalation.
+- **Build-context isolation.** `.dockerignore` keeps `.env`, rendered manifests, and git history out of the Docker build context entirely.
+- **Automated dependency updates.** Dependabot watches Actions, pip requirements, and base images.
+
+To enable deployment from CI: set the `AWS_GHA_ROLE_ARN` secret (a role whose trust policy accepts tokens from this repo), the `AWS_REGION` and `EKS_CLUSTER` variables, and `DEPLOY_ENABLED=true`.
 
 ---
 

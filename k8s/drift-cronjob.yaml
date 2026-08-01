@@ -19,6 +19,12 @@ spec:
       template:
         spec:
           restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
           affinity:
             podAffinity:
               requiredDuringSchedulingIgnoredDuringExecution:

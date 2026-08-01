@@ -1,0 +1,29 @@
+# Keeps GitHub Actions, Python dependencies, and base images current.
+# Security patches arrive as PRs instead of going unnoticed.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: pip
+    directories:
+      - "/serving"
+      - "/training"
+      - "/monitoring/drift"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: docker
+    directories:
+      - "/serving"
+      - "/monitoring/drift"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "docker"

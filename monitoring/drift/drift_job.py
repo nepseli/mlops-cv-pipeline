@@ -10,7 +10,7 @@ retraining is then a `make retrain` / GitHub Actions dispatch away.
 import json
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -33,7 +33,7 @@ def load_jsonl(path: Path) -> pd.DataFrame:
 
 
 def load_current() -> pd.DataFrame:
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=CURRENT_HOURS)
+    cutoff = datetime.now(UTC) - timedelta(hours=CURRENT_HOURS)
     frames = []
     for f in sorted(PRED_LOG_DIR.glob("*.jsonl")):
         df = load_jsonl(f)

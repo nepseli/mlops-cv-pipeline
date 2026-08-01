@@ -1,0 +1,22 @@
+# The build context is the repo root, so without this your .env, kubeconfig
+# fragments, and rendered manifests are shipped to the Docker daemon — and one
+# careless COPY away from ending up inside a published image.
+.env
+.env.*
+!.env.example
+build/
+.git/
+.github/
+.venv/
+venv/
+__pycache__/
+*.pyc
+training/runs/
+mlruns/
+data/
+docs/
+*.md
+*.jpg
+*.jpeg
+*.png
+*.pt

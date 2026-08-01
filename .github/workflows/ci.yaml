@@ -1,78 +1,90 @@
+# Fast, dependency-free validation. Runs on every push and PR and requires no
+# cloud credentials, so a fork gets a green build immediately.
+# Anything needing AWS lives in deploy.yaml, which is gated.
 name: ci
+
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
-env:
-  AWS_REGION: us-east-1
+permissions:
+  contents: read
 
 jobs:
-  lint-test:
+  lint:
+    name: Lint and compile
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: {python-version: "3.11"}
-      - run: pip install ruff
-      - run: ruff check serving training monitoring
-      - name: Syntax check
-        run: python -m py_compile serving/app/main.py training/train.py training/fetch_model.py monitoring/drift/drift_job.py
-      - name: Validate k8s manifests
-        run: |
-          pip install pyyaml
-          python -c "import yaml, glob; [list(yaml.safe_load_all(open(f))) for f in glob.glob('k8s/*.yaml') + glob.glob('monitoring/*.yaml')]"
-
-  build-push:
-    needs: lint-test
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write        # OIDC — no long-lived AWS keys in GitHub
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
-          role-to-assume: ${{ secrets.AWS_GHA_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - uses: aws-actions/amazon-ecr-login@v2
-        id: ecr
-      - name: Fetch production model from MLflow
-        # Requires MLFLOW_TRACKING_URI reachable from CI (e.g. via an ALB or
-        # a self-hosted runner in the VPC). For the demo, commit serving/model.onnx
-        # after `make fetch-model` and this step is skipped.
-        if: ${{ vars.MLFLOW_TRACKING_URI != '' }}
-        run: |
-          pip install mlflow boto3
-          MLFLOW_TRACKING_URI=${{ vars.MLFLOW_TRACKING_URI }} python training/fetch_model.py production
-      - name: Build and push serving image
-        run: |
-          ECR=${{ steps.ecr.outputs.registry }}
-          docker build -t $ECR/mlops-cv/serving:${{ github.sha }} -f serving/Dockerfile .
-          docker push $ECR/mlops-cv/serving:${{ github.sha }}
-      - name: Build and push drift image
-        run: |
-          ECR=${{ steps.ecr.outputs.registry }}
-          docker build -t $ECR/mlops-cv/drift:${{ github.sha }} -f monitoring/drift/Dockerfile .
-          docker push $ECR/mlops-cv/drift:${{ github.sha }}
+          python-version: "3.11"
+      - name: Install ruff
+        run: pip install --disable-pip-version-check ruff
+      - name: Lint (rules pinned in ruff.toml)
+        run: ruff check .
+      - name: Compile all sources
+        run: python -m compileall -q serving training monitoring
 
-  deploy:
-    needs: build-push
-    if: github.ref == 'refs/heads/main'
+  manifests:
+    name: Validate Kubernetes manifests
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
-          role-to-assume: ${{ secrets.AWS_GHA_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Deploy to EKS
+          python-version: "3.11"
+      - name: Parse every manifest (placeholders substituted with dummies)
         run: |
-          aws eks update-kubeconfig --name mlops-cv --region $AWS_REGION
-          kubectl -n mlops set image deploy/cv-serving \
-            serving=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$AWS_REGION.amazonaws.com/mlops-cv/serving:${{ github.sha }}
-          kubectl -n mlops rollout status deploy/cv-serving --timeout=180s
+          pip install --disable-pip-version-check pyyaml
+          python - <<'PY'
+          import glob, re, sys, yaml
+          files = (glob.glob("k8s/*.yaml") + glob.glob("monitoring/*.yaml")
+                   + glob.glob("infra/*.yaml") + ["params.yaml", "dvc.yaml"])
+          bad = []
+          for f in files:
+              text = re.sub(r"\$\{[A-Z_]+\}", "placeholder", open(f).read())
+              try:
+                  list(yaml.safe_load_all(text))
+                  print(f"ok   {f}")
+              except yaml.YAMLError as exc:
+                  bad.append(f)
+                  print(f"FAIL {f}: {exc}")
+          sys.exit(1 if bad else 0)
+          PY
+      - name: Render manifests the way `make render` does
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          export ECR=123456789012.dkr.ecr.us-east-1.amazonaws.com
+          export MLFLOW_BUCKET=example-bucket IMAGE_TAG=ci
+          for f in k8s/*.yaml; do
+            envsubst '$ECR $MLFLOW_BUCKET $IMAGE_TAG' < "$f" > "build/$(basename "$f")"
+          done
+          grep -q "$ECR" build/serving.yaml && echo "render OK"
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0        # full history so the scan covers every commit
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Build images (no push)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Placeholder model so the serving image can build
+        run: touch serving/model.onnx
+      - name: Build serving image
+        run: docker build -t cv-serving:ci -f serving/Dockerfile .
+      - name: Build drift image
+        run: docker build -t cv-drift:ci -f monitoring/drift/Dockerfile .

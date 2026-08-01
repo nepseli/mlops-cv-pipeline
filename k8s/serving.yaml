@@ -33,9 +33,23 @@ spec:
     metadata:
       labels: {app: cv-serving}
     spec:
+      # Pod runs as the non-root user baked into the image. fsGroup makes the
+      # mounted EBS volume writable by that user.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: serving
           image: ${ECR}/mlops-cv/serving:${IMAGE_TAG}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            # readOnlyRootFilesystem: true is the next step — it needs an
+            # emptyDir at /tmp and PYTHONDONTWRITEBYTECODE to be verified first.
           ports:
             - {name: http, containerPort: 8080}
           env:

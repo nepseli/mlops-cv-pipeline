@@ -1,0 +1,62 @@
+# Build, push to ECR, and roll out to EKS.
+#
+# Gated deliberately: it only runs when the repository variable DEPLOY_ENABLED
+# is set to "true" (Settings → Secrets and variables → Actions → Variables).
+# Without that, forks and clones never see a red build for missing credentials.
+#
+# Prerequisites when you do enable it:
+#   secret AWS_GHA_ROLE_ARN  — IAM role trusting this repo via GitHub's OIDC provider
+#   variable AWS_REGION      — e.g. us-east-1
+#   variable EKS_CLUSTER     — e.g. mlops-cv
+name: deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write        # OIDC: short-lived credentials, no stored AWS keys
+
+jobs:
+  deploy:
+    if: vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GHA_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - name: Fetch the production model from MLflow
+        if: vars.MLFLOW_TRACKING_URI != ''
+        env:
+          MLFLOW_TRACKING_URI: ${{ vars.MLFLOW_TRACKING_URI }}
+        run: |
+          pip install --disable-pip-version-check "mlflow>=3.0,<4.0" boto3
+          python training/fetch_model.py production
+
+      - name: Build and push images
+        env:
+          ECR: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$ECR/mlops-cv/serving:$TAG" -f serving/Dockerfile .
+          docker build -t "$ECR/mlops-cv/drift:$TAG"  -f monitoring/drift/Dockerfile .
+          docker push "$ECR/mlops-cv/serving:$TAG"
+          docker push "$ECR/mlops-cv/drift:$TAG"
+
+      - name: Roll out to EKS
+        env:
+          ECR: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ github.sha }}
+        run: |
+          aws eks update-kubeconfig --name "${{ vars.EKS_CLUSTER }}" --region "${{ vars.AWS_REGION }}"
+          kubectl -n mlops set image deploy/cv-serving "serving=$ECR/mlops-cv/serving:$TAG"
+          kubectl -n mlops rollout status deploy/cv-serving --timeout=300s

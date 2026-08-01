@@ -34,10 +34,14 @@ def register(client: "mlflow.MlflowClient", model_uri: str, run_id: str):
     We log a raw .onnx file, so we go through the registry API directly — this
     works identically on MLflow 2.x and 3.x.
     """
+    from mlflow.exceptions import RestException
+
     try:
         client.create_registered_model(MODEL_NAME)
-    except Exception:
-        pass  # already exists
+    except RestException as exc:
+        # RESOURCE_ALREADY_EXISTS is expected on every run after the first.
+        if exc.error_code != "RESOURCE_ALREADY_EXISTS":
+            raise
     return client.create_model_version(MODEL_NAME, source=model_uri, run_id=run_id)
 
 
